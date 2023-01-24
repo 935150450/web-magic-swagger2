@@ -3,7 +3,9 @@ package com.webmagic.processor;
 import cn.hutool.core.map.MapUtil;
 import cn.hutool.poi.excel.ExcelUtil;
 import cn.hutool.poi.excel.ExcelWriter;
+import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
+import com.alibaba.fastjson.serializer.SerializerFeature;
 import com.webmagic.component.HtmlParserComponent;
 import com.webmagic.dto.*;
 import com.webmagic.utils.HutoolExcelUtil;
@@ -18,7 +20,6 @@ import us.codecraft.webmagic.selector.Html;
 
 import java.text.DecimalFormat;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
@@ -216,7 +217,7 @@ public class RunoobPageProcessor implements PageProcessor {
                 setRemarks(sheet,rowi,"HTTP Header",titleFont);
                 setTableHeadertitle(sheet,rowi,paleBlue);
                 setTableHeaderData(sheet,rowi,dto.getParameters(),frame);
-                if (k.equals("/v1/mailMsg/appPage")){
+                if (sheet.getSheetName().equals("YX30-线索调用GRT同步渠道来源信息 测试联调,后面要删")){
                     System.out.println("123");
                 }
                 /*                    请求报文开始                          */
@@ -237,7 +238,6 @@ public class RunoobPageProcessor implements PageProcessor {
                 /*                    Java对象部分                          */
                 if (CollectionUtils.isNotEmpty(pendingData)){
                     //待处理对象，为了完整显示数据结构
-                    List<String> pendingChildNode=new ArrayList<>();
                     rowi.getAndIncrement();
                     rowi.getAndIncrement();
                     rowi.getAndIncrement();
@@ -248,7 +248,6 @@ public class RunoobPageProcessor implements PageProcessor {
                         setPojoData(sheet,rowi,swaggerDto,i,frame);
                         rowi.getAndIncrement();
                     });
-
                 }
 
                 Row row = sheet.getRow(19);
@@ -467,20 +466,27 @@ public class RunoobPageProcessor implements PageProcessor {
      * @param refLink
      */
     private void parseData(Sheet sheet, AtomicInteger rowi, SwaggerDto swaggerDto, AtomicInteger k, String refLink,CellStyle cellStyle) {
-        List<String> childNodeList=new ArrayList<>();
         Definitions definitions = swaggerDto.getDefinitions().get(refLink);
+        List<String> childNodeList=new ArrayList<>();
         if (null !=definitions){
             Map<String, RespPropertiesDto> properties = definitions.getProperties();
             properties.forEach((k1,v1)->{
                 String type=v1.getType();
                 //判断子节点是否包含 叶子节点
-                if ("array".equals(v1.getType())){
+                if (StringUtils.isBlank(v1.getType())) {
+                    //存在一种情况，type 等于空，ref 不为空，Java代码为对象引用
+                    String linkRef=getRef(v1.getRef());
+                    if (StringUtils.isNotBlank(linkRef)){
+                        type = linkRef;
+                        childNodeList.add(linkRef);
+                    }
+                }else if ("array".equals(v1.getType())){
                     String linkRef=getRef(v1.getItems().getRef());
                     if (StringUtils.isNotBlank(linkRef)){
+                        type = getArrayType(linkRef);
                         childNodeList.add(linkRef);
-                        type = linkRef;
                     }else{
-                        type =v1.getItems().getType();
+                        type = getArrayType(v1.getItems().getType());
                     }
                 }
                 //body 对象拿字段是否必填 已经尝试在@ApiModelProperty 上拿过了
@@ -491,18 +497,17 @@ public class RunoobPageProcessor implements PageProcessor {
             });
         }
         //递归子节点 可能一个pojo中存在多个 对象引用
-        if (CollectionUtils.isNotEmpty(childNodeList)){
+        // && !childNodeList.contains(refLink)  解决Dto引入当前dto问题
+        if (CollectionUtils.isNotEmpty(childNodeList) && !childNodeList.contains(refLink)){
 //            CompletableFuture.runAsync(()->{
-            childNodeList.stream().forEach(i->{
-                try {
-                    rowi.getAndIncrement();
-                    setRemarks(sheet,rowi,i,cellStyle);
+            childNodeList.stream().forEach(node->{
+                rowi.getAndIncrement();
+                if(null !=swaggerDto.getDefinitions().get(node)){
+                    setRemarks(sheet,rowi,node,HutoolExcelUtil.buildInterfaceInfoCellStyle(sheet.getWorkbook(), IndexedColors.PALE_BLUE.getIndex()));
                     setTableHeadertitle(sheet,rowi,HutoolExcelUtil.buildInterfaceInfoCellStyle(sheet.getWorkbook(), IndexedColors.PALE_BLUE.getIndex()));
-                    parseData(sheet,rowi,swaggerDto,k,i,cellStyle);
+                    k.set(1);
+                    parseData(sheet,rowi,swaggerDto,k,node,cellStyle);
                     rowi.getAndIncrement();
-                }catch (Exception e){
-    //                e.printStackTrace();
-                    System.out.println(i);
                 }
             });
 
@@ -542,7 +547,7 @@ public class RunoobPageProcessor implements PageProcessor {
                             if (StringUtils.isNotBlank(v1.getRef())){
                                 //保存DTO对象
                                 addPendingData(pendingData,getRef(v1.getRef()));
-                                type=getRef(v1.getRef());
+                                type = getArrayType(getRef(v1.getRef()));
                             }
                         }
                         List<String> parameters1 = Arrays.asList(String.valueOf(k.get()), k1,StringUtils.isNotEmpty(v1.getDescription())?v1.getDescription():"",type,"",remarks);
@@ -554,24 +559,6 @@ public class RunoobPageProcessor implements PageProcessor {
         });
     }
 
-    /**
-     * 设置一行数据
-     * @param sheet
-     * @param rowi
-     * @param dataValue
-     */
-    private void setCallValue(Sheet sheet,AtomicInteger rowi,List<String> dataValue){
-        AtomicReference<Row> row = new AtomicReference<>(sheet.getRow(rowi.get()));
-        if (CollectionUtils.isNotEmpty(dataValue)){
-            AtomicInteger k= new AtomicInteger(0);
-            row.set(sheet.createRow(rowi.get()));
-            dataValue.stream().forEach(i->{
-                row.get().createCell(k.get()).setCellValue(String.valueOf(i));
-                k.getAndIncrement();
-            });
-        }
-        rowi.getAndIncrement();
-    }
 
     /**
      * 设置一行数据
@@ -586,15 +573,8 @@ public class RunoobPageProcessor implements PageProcessor {
                 AtomicInteger k= new AtomicInteger(0);
                 row.set(sheet.createRow(rowi.get()));
                 dataValue.stream().forEach(i->{
-                    try {
-                        row.get().createCell(k.get()).setCellValue(String.valueOf(i));
-                        row.get().getCell(k.get()).setCellStyle(cellStyle);
-                    }catch (Exception e){
-                        System.out.println("------------------------------");
-                        System.out.println(k);
-                        System.out.println(i);
-                        System.out.println("------------------------------");
-                    }
+                    row.get().createCell(k.get()).setCellValue(String.valueOf(i));
+                    row.get().getCell(k.get()).setCellStyle(cellStyle);
                     k.getAndIncrement();
                 });
             }
@@ -647,17 +627,17 @@ public class RunoobPageProcessor implements PageProcessor {
     }
 
 
-//    public static void main(String[] args){
-//
-//        // 按指定模式在字符串查找
-//        String line = "This order was placed for QT3000! OK?";
-//        String pattern = "^placed$";
-//
-//        // 创建 Pattern 对象
-//        Pattern r = Pattern.compile(pattern);
-//        pattern.
-//        System.out.println(r.toString());
-//
-//    }
+    public static void main(String[] args) {
+
+        String jsonString = "{\"_index\":\"book_shop\",\"_type\":\"it_book\",\"_id\":\"1\",\"_score\":1.0," +
+                "\"_source\":{\"name\": \"Java编程思想（第4版）\",\"author\": \"[美] Bruce Eckel\",\"category\": \"编程语言\"," +
+                "\"price\": 109.0,\"publisher\": \"机械工业出版社\",\"date\": \"2007-06-01\",\"tags\": [ \"Java\", \"编程语言\" ]}}";
+
+        JSONObject object = JSONObject.parseObject(jsonString);
+        String pretty = JSON.toJSONString(object, SerializerFeature.PrettyFormat, SerializerFeature.WriteMapNullValue,
+                SerializerFeature.WriteDateUseDateFormat);
+
+        System.out.println(pretty);
+    }
 
 }
