@@ -7,8 +7,10 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.serializer.SerializerFeature;
 import com.webmagic.component.HtmlParserComponent;
+import com.webmagic.constants.ExcelConst;
 import com.webmagic.dto.*;
 import com.webmagic.utils.HutoolExcelUtil;
+import com.webmagic.utils.JsonExampleUtil;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.poi.ss.usermodel.*;
@@ -34,18 +36,11 @@ import java.util.stream.Collectors;
  * @date 2019/6/1315:08
  */
 public class RunoobPageProcessor implements PageProcessor {
-    //ref解析对象
-    private final List<String> reqestType=Arrays.asList("body","query");
     //url 和 接口编号
     private static Map<String,String> urlMap=new HashMap<>();
 
-    private HtmlParserComponent htmlParserComponent;
     //列
     private int column = 6;
-
-    public RunoobPageProcessor(HtmlParserComponent htmlParserComponent) {
-        this.htmlParserComponent = htmlParserComponent;
-    }
 
     /**
      *  抓取网站的相关配置，包括编码、重试次数、抓取间隔、超时时间、请求消息头、UA信息等
@@ -217,12 +212,10 @@ public class RunoobPageProcessor implements PageProcessor {
                 setRemarks(sheet,rowi,"HTTP Header",titleFont);
                 setTableHeadertitle(sheet,rowi,paleBlue);
                 setTableHeaderData(sheet,rowi,dto.getParameters(),frame);
-                if (sheet.getSheetName().equals("YX30-线索调用GRT同步渠道来源信息 测试联调,后面要删")){
-                    System.out.println("123");
-                }
                 /*                    请求报文开始                          */
-                setRemarks(sheet,rowi,"*请求报文",titleFont);
-                setRemarks(sheet,rowi,"");//请求的JSON 暂时不写
+                setRemarks(sheet,rowi,"*请求报文示例",titleFont);
+                String s = JsonExampleUtil.requestJsonSerialize(swaggerDto.getDefinitions(), dto);
+                setRemarks(sheet,rowi,s);//请求的JSON 暂时不写
                 //请求参数说明
                 setRemarks(sheet,rowi,"*请求内容字段说明");
                 setTableHeadertitle(sheet,rowi,paleBlue);
@@ -249,7 +242,7 @@ public class RunoobPageProcessor implements PageProcessor {
                         rowi.getAndIncrement();
                     });
                 }
-
+                //设置表格宽度
                 Row row = sheet.getRow(19);
                 for (int i = 0; i <row.getLastCellNum();i++) {
                     sheet.setColumnWidth(i,  30 * 256);   // 在EXCEL文档中实际列宽为100
@@ -393,7 +386,7 @@ public class RunoobPageProcessor implements PageProcessor {
      */
     private void setTableHeaderData(Sheet sheet,AtomicInteger rowi,List<Parameters> parameters,CellStyle cellStyle){
         AtomicInteger k= new AtomicInteger(1);
-        parameters.stream().filter(i->"header".equals(i.getIn())).forEach(i->{
+        parameters.stream().filter(i-> ExcelConst.HEADER_OBJECT.contains(i.getIn())).forEach(i->{
             //江铃可以获取到字段类型    广汽不能   ,如果不能检查代码
             String type=StringUtils.isNotBlank(i.getType())?i.getType():"String";
             List<String> parameters1 = Arrays.asList(String.valueOf(k.get()), i.getName(),i.getDescription(),type,String.valueOf(i.getRequired()),"");
@@ -414,9 +407,9 @@ public class RunoobPageProcessor implements PageProcessor {
     private void setTableRequestData(Sheet sheet,AtomicInteger rowi,List<Parameters> parameters,SwaggerDto swaggerDto,List<String> pendingData,CellStyle cellStyle){
         //列表 序号 index
         AtomicInteger k= new AtomicInteger(1);
-        parameters.stream().filter(i->reqestType.contains(i.getIn())).forEach(i->{
+        parameters.stream().filter(i->ExcelConst.DATA_OBJECT.contains(i.getIn()) && StringUtils.isNotBlank(i.getName()) ).forEach(i->{
             //用body 和 query 来区分解析类型
-            if ("body".equals(i.getIn()) && null !=i.getSchema()){
+            if (ExcelConst.BODY.equals(i.getIn()) && null !=i.getSchema()){
                 String refLink="";
                 //判断数据格式
                 if (StringUtils.isNotBlank(i.getSchema().getType())){
@@ -424,8 +417,8 @@ public class RunoobPageProcessor implements PageProcessor {
                         //格式二  "items":{"type":"integer","format":"int64"}
                     if (CollectionUtils.isNotEmpty(i.getSchema().getItems()) && StringUtils.isNotBlank(i.getSchema().getItems().get(0).getRef())){
                         //格式一   显示List<对象> list 格式
-                        String getreflinkList = getRef(i.getSchema().getItems().get(0).getRef());
-                        String type=i.getSchema().getType().equals("array")? getArrayType(getreflinkList) :null;
+                        String getreflinkList = JsonExampleUtil.getRef(i.getSchema().getItems().get(0).getRef());
+                        String type=i.getSchema().getType().equals(ExcelConst.ARRAY)? JsonExampleUtil.getArrayType(getreflinkList) :null;
                         List<String> parameters1 = Arrays.asList(String.valueOf(k.get()), i.getName(),"POJO",type,String.valueOf(i.getRequired()),"");
                         setCallValue(sheet,rowi,parameters1,cellStyle);
                         k.getAndIncrement();
@@ -433,14 +426,14 @@ public class RunoobPageProcessor implements PageProcessor {
                         addPendingData(pendingData,getreflinkList);
                     }else{
                         //格式二  RequestParam 显示显示List<对象> list 格式
-                        String type=i.getSchema().getType().equals("array")?getArrayType(i.getSchema().getItems().get(0).getType()):i.getSchema().getItems().get(0).getType();
+                        String type=i.getSchema().getType().equals(ExcelConst.ARRAY)?JsonExampleUtil.getArrayType(i.getSchema().getItems().get(0).getType()):i.getSchema().getItems().get(0).getType();
                         List<String> parameters1 = Arrays.asList(String.valueOf(k.get()), i.getName(),i.getDescription(),type,String.valueOf(i.getRequired()),"");
                         setCallValue(sheet,rowi,parameters1,cellStyle);
                         k.getAndIncrement();
                     }
                 }else{
                     //当type为空时数据格式为："$ref":"#/definitions/MailMsgReadReqDto"
-                    refLink=getRef(i.getSchema().getRef());
+                    refLink=JsonExampleUtil.getRef(i.getSchema().getRef());
                 }
                 if (StringUtils.isNotBlank(refLink)){
                     //只显示数据格式对象，不显示详情
@@ -448,7 +441,7 @@ public class RunoobPageProcessor implements PageProcessor {
                 }
             }else{
                 if (StringUtils.isNotBlank(i.getName())){
-                    List<String> parameters1 = Arrays.asList(String.valueOf(k.get()), i.getName(),i.getDescription(),i.getType(),String.valueOf(i.getRequired()),"请求类型或为：@RequestParam ，所以没中文描述");
+                    List<String> parameters1 = Arrays.asList(String.valueOf(k.get()), i.getName(),i.getDescription(),i.getType(),String.valueOf(i.getRequired()),"");
                     setCallValue(sheet,rowi,parameters1,cellStyle);
                     k.getAndIncrement();
                 }
@@ -475,18 +468,18 @@ public class RunoobPageProcessor implements PageProcessor {
                 //判断子节点是否包含 叶子节点
                 if (StringUtils.isBlank(v1.getType())) {
                     //存在一种情况，type 等于空，ref 不为空，Java代码为对象引用
-                    String linkRef=getRef(v1.getRef());
+                    String linkRef=JsonExampleUtil.getRef(v1.getRef());
                     if (StringUtils.isNotBlank(linkRef)){
                         type = linkRef;
                         childNodeList.add(linkRef);
                     }
-                }else if ("array".equals(v1.getType())){
-                    String linkRef=getRef(v1.getItems().getRef());
+                }else if (ExcelConst.ARRAY.equals(v1.getType())){
+                    String linkRef=JsonExampleUtil.getRef(v1.getItems().getRef());
                     if (StringUtils.isNotBlank(linkRef)){
-                        type = getArrayType(linkRef);
+                        type = JsonExampleUtil.getArrayType(linkRef);
                         childNodeList.add(linkRef);
                     }else{
-                        type = getArrayType(v1.getItems().getType());
+                        type = JsonExampleUtil.getArrayType(v1.getItems().getType());
                     }
                 }
                 //body 对象拿字段是否必填 已经尝试在@ApiModelProperty 上拿过了
@@ -528,7 +521,7 @@ public class RunoobPageProcessor implements PageProcessor {
             //只拿到请求成功示例内容
             if (200 == key && "OK".equals(value.getDescription())){
                 //获取响应报文
-                String reflick=getRef(value.getSchema().getRef());
+                String reflick=JsonExampleUtil.getRef(value.getSchema().getRef());
                 Definitions definitions = swaggerDto.getDefinitions().get(reflick);
                 if (null != definitions){
                    AtomicInteger k= new AtomicInteger(1);
@@ -538,16 +531,16 @@ public class RunoobPageProcessor implements PageProcessor {
                         String type=v1.getType();
                         if (k1.equals("data")){
                             //判断是否为数组
-                            if (StringUtils.isNotBlank(v1.getType()) && v1.getType().equals("array")){
+                            if (StringUtils.isNotBlank(v1.getType()) && v1.getType().equals(ExcelConst.ARRAY)){
                                 //保存DTO对象
-                                addPendingData(pendingData,getRef(v1.getItems().getRef()));
-                                remarks=getRef(v1.getItems().getRef());
+                                addPendingData(pendingData,JsonExampleUtil.getRef(v1.getItems().getRef()));
+                                remarks=JsonExampleUtil.getRef(v1.getItems().getRef());
                             }
                             //判断response data对象是否有子节点
                             if (StringUtils.isNotBlank(v1.getRef())){
                                 //保存DTO对象
-                                addPendingData(pendingData,getRef(v1.getRef()));
-                                type = getArrayType(getRef(v1.getRef()));
+                                addPendingData(pendingData,JsonExampleUtil.getRef(v1.getRef()));
+                                type = JsonExampleUtil.getArrayType(JsonExampleUtil.getRef(v1.getRef()));
                             }
                         }
                         List<String> parameters1 = Arrays.asList(String.valueOf(k.get()), k1,StringUtils.isNotEmpty(v1.getDescription())?v1.getDescription():"",type,"",remarks);
@@ -582,17 +575,7 @@ public class RunoobPageProcessor implements PageProcessor {
         rowi.getAndIncrement();
     }
 
-    /**
-     * 解析链接Dto对象
-     * @param refLink
-     * @return
-     */
-    private String getRef(String refLink){
-        if (StringUtils.isBlank(refLink)){
-            return null;
-        }
-        return refLink.replace("#/definitions/","");
-    }
+
 
     /**
      * 保存额外显示的对象
@@ -617,27 +600,22 @@ public class RunoobPageProcessor implements PageProcessor {
         });
     }
 
-    /**
-     * 获取数组类型
-     * @param objecyType
-     * @return
-     */
-    private String getArrayType(String objecyType) {
-        return "List<" + objecyType + ">";
-    }
-
 
     public static void main(String[] args) {
 
-        String jsonString = "{\"_index\":\"book_shop\",\"_type\":\"it_book\",\"_id\":\"1\",\"_score\":1.0," +
-                "\"_source\":{\"name\": \"Java编程思想（第4版）\",\"author\": \"[美] Bruce Eckel\",\"category\": \"编程语言\"," +
-                "\"price\": 109.0,\"publisher\": \"机械工业出版社\",\"date\": \"2007-06-01\",\"tags\": [ \"Java\", \"编程语言\" ]}}";
-
-        JSONObject object = JSONObject.parseObject(jsonString);
-        String pretty = JSON.toJSONString(object, SerializerFeature.PrettyFormat, SerializerFeature.WriteMapNullValue,
+        Map<String,Object> map=new HashMap<>();
+        map.put("a","字符");
+        map.put("b",1);
+        String pretty = JSON.toJSONString(map, SerializerFeature.PrettyFormat, SerializerFeature.WriteMapNullValue,
                 SerializerFeature.WriteDateUseDateFormat);
-
         System.out.println(pretty);
+
+        List<String> list = new ArrayList<>();
+        list.add("a");
+        list.add("b");
+        System.out.println(JSON.toJSONString(list, SerializerFeature.PrettyFormat, SerializerFeature.WriteMapNullValue,
+                SerializerFeature.WriteDateUseDateFormat));
+
     }
 
 }

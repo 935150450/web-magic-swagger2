@@ -27,7 +27,7 @@ public class WebMagicController {
     public void TestTing55(){
 //        String book= "http://localhost:61675/v2/api-docs";
         String book = "http://gac-dev.amdu.dtyunxi.cn/gac/amdmp-boot-app-openapi/v2/api-docs";
-        Spider.create(new RunoobPageProcessor(htmlParserComponent))
+        Spider.create(new RunoobPageProcessor())
                 .addUrl(book)
                 .addPipeline(new MarkdownSavePipeline())
                 .thread(10)

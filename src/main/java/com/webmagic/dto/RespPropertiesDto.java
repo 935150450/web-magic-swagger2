@@ -15,6 +15,8 @@ public class RespPropertiesDto {
     private Items items;
     //可能存在ref
     private String ref;
+    //字段类型
+    private String format;
 
     @Data
     public class Items{
